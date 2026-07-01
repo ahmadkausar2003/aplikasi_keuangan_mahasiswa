@@ -1,4 +1,4 @@
-# 💰 Aplikasi Keuangan Mahasiswa
+# 💰 Aplikasi Keuangan Mahasiswaaaaaaaaaaaaaaaaaa
 
 Aplikasi manajemen keuangan berbasis mobile yang dirancang khusus untuk membantu mahasiswa dalam mencatat pendapatan, pengeluaran, serta mengelola anggaran bulanan secara mandiri dan teratur.
 
