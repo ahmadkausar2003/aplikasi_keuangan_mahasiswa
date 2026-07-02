@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/transaction_model.dart';
 import '../../core/database/db_helper.dart';
 
 class TransactionState {
   final List<TransactionModel> allTransactions;
-  final List<TransactionModel> recentTransactions; // Untuk dashboard (7 hari terakhir)
-  final double mainBalance; // Saldo Utama Sejati
+  final List<TransactionModel> recentTransactions;
+  final double mainBalance;
+  final double bankBalance; // Menyimpan Saldo Rekening Manual
   final double currentMonthIncome;
   final double currentMonthExpense;
   final bool isLoading;
@@ -15,6 +17,7 @@ class TransactionState {
     this.allTransactions = const [],
     this.recentTransactions = const [],
     this.mainBalance = 0.0,
+    this.bankBalance = 0.0,
     this.currentMonthIncome = 0.0,
     this.currentMonthExpense = 0.0,
     this.isLoading = false,
@@ -24,6 +27,7 @@ class TransactionState {
     List<TransactionModel>? allTransactions,
     List<TransactionModel>? recentTransactions,
     double? mainBalance,
+    double? bankBalance,
     double? currentMonthIncome,
     double? currentMonthExpense,
     bool? isLoading,
@@ -32,6 +36,7 @@ class TransactionState {
       allTransactions: allTransactions ?? this.allTransactions,
       recentTransactions: recentTransactions ?? this.recentTransactions,
       mainBalance: mainBalance ?? this.mainBalance,
+      bankBalance: bankBalance ?? this.bankBalance,
       currentMonthIncome: currentMonthIncome ?? this.currentMonthIncome,
       currentMonthExpense: currentMonthExpense ?? this.currentMonthExpense,
       isLoading: isLoading ?? this.isLoading,
@@ -50,46 +55,43 @@ class TransactionNotifier extends Notifier<TransactionState> {
 
   Future<void> loadTransactions() async {
     state = state.copyWith(isLoading: true);
+    final prefs = await SharedPreferences.getInstance();
     
     try {
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month, 1);
       final endOfMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-
-      // Ambil 7 hari terakhir untuk dashboard
       final sevenDaysAgo = now.subtract(const Duration(days: 7));
 
       final results = await Future.wait([
-        _dbHelper.getAllTransactions(), // 0. Semua data
-        _dbHelper.getTransactionsByDateRange(sevenDaysAgo, now), // 1. Data 7 hari
-        _dbHelper.getLifetimeIncome(), // 2. Total uang masuk selamanya
-        _dbHelper.getLifetimeExpense(), // 3. Total uang keluar selamanya
-        _dbHelper.getTotalIncome(startOfMonth, endOfMonth), // 4. Pemasukan bulan ini
-        _dbHelper.getTotalExpense(startOfMonth, endOfMonth), // 5. Pengeluaran bulan ini
+        _dbHelper.getAllTransactions(),
+        _dbHelper.getTransactionsByDateRange(sevenDaysAgo, now),
+        _dbHelper.getLifetimeIncome(),
+        _dbHelper.getLifetimeExpense(),
+        _dbHelper.getTotalIncome(startOfMonth, endOfMonth),
+        _dbHelper.getTotalExpense(startOfMonth, endOfMonth),
       ]);
 
-      final allTransactions = results[0] as List<TransactionModel>;
-      final recentTransactions = results[1] as List<TransactionModel>;
-      final lifetimeIncome = results[2] as double;
-      final lifetimeExpense = results[3] as double;
-      final currentMonthIncome = results[4] as double;
-      final currentMonthExpense = results[5] as double;
-
-      // Perhitungan Saldo Utama Murni (Total Seluruh Pemasukan - Total Seluruh Pengeluaran)
-      final mainBalance = lifetimeIncome - lifetimeExpense;
-
       state = state.copyWith(
-        allTransactions: allTransactions,
-        recentTransactions: recentTransactions,
-        mainBalance: mainBalance,
-        currentMonthIncome: currentMonthIncome,
-        currentMonthExpense: currentMonthExpense,
+        allTransactions: results[0] as List<TransactionModel>,
+        recentTransactions: results[1] as List<TransactionModel>,
+        mainBalance: (results[2] as double) - (results[3] as double),
+        bankBalance: prefs.getDouble('manual_bank_balance') ?? 0.0, // Muat dari penyimpanan lokal
+        currentMonthIncome: results[4] as double,
+        currentMonthExpense: results[5] as double,
         isLoading: false,
       );
     } catch (e) {
       state = state.copyWith(isLoading: false);
       debugPrint('Error loading transactions: $e');
     }
+  }
+
+  // Fungsi khusus untuk memperbarui Saldo Rekening Manual
+  Future<void> updateBankBalance(double newBalance) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('manual_bank_balance', newBalance);
+    state = state.copyWith(bankBalance: newBalance);
   }
 
   Future<void> addTransaction(TransactionModel transaction) async {

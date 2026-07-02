@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -20,6 +21,54 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     symbol: 'Rp ',
     decimalDigits: 0,
   );
+
+  // Dialog untuk mengedit Saldo Rekening Manual
+  void _showEditBankBalance(BuildContext context, WidgetRef ref, double currentBalance) {
+    final controller = TextEditingController(
+      text: currentBalance == 0 ? '' : currentBalance.toInt().toString()
+    );
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ubah Saldo Rekening'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: 'Nominal Saldo Saat Ini',
+              prefixText: 'Rp ',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) return 'Tidak boleh kosong';
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                final newBalance = double.tryParse(controller.text) ?? 0.0;
+                ref.read(transactionProvider.notifier).updateBankBalance(newBalance);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,10 +98,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Menggunakan Saldo Utama Absolut
+                      // 1. Kartu Saldo Utama (Hasil Kalkulasi Transaksi)
                       _buildBalanceCard(context, state.mainBalance),
+                      const SizedBox(height: 16),
+                      
+                      // 2. Kartu Saldo Rekening (Input Manual Berdiri Sendiri)
+                      _buildBankBalanceCard(context, state.bankBalance),
                       const SizedBox(height: 24),
-                      // Ringkasan Pemasukan & Pengeluaran Bulan Ini
+                      
+                      // 3. Ringkasan Pemasukan & Pengeluaran Bulan Ini
                       _buildSummaryRow(context, state.currentMonthIncome, state.currentMonthExpense),
                       const SizedBox(height: 32),
                       
@@ -72,7 +126,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Menggunakan recentTransactions dari Provider (sudah terfilter 7 hari)
+                      
+                      // 4. Daftar Transaksi 7 Hari Terakhir
                       _buildRecentTransactions(context, state.recentTransactions),
                     ],
                   ),
@@ -126,7 +181,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Saldo Utama',
+            'Saldo Utama (Total Transaksi)',
             style: TextStyle(
               color: Colors.white70,
               fontSize: 14,
@@ -140,6 +195,65 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               color: Colors.white,
               fontSize: 32,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBankBalanceCard(BuildContext context, double balance) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: theme.brightness == Brightness.light 
+              ? const Color(0xFFE2E8F0) 
+              : const Color(0xFF334155),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.account_balance, color: Colors.blueAccent),
+              ),
+              const SizedBox(width: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Saldo Rekening / Bank',
+                    style: theme.textTheme.titleMedium?.copyWith(fontSize: 14),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _currencyFormat.format(balance),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: Colors.blueAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            color: Colors.grey,
+            tooltip: 'Ubah Saldo Manual',
+            onPressed: () => _showEditBankBalance(context, ref, balance),
           ),
         ],
       ),
@@ -262,10 +376,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final isIncome = transaction.type == 'income';
     final amountColor = isIncome ? const Color(0xFF10B981) : theme.textTheme.titleMedium?.color;
 
-    // Membungkus dengan InkWell agar bisa diklik
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () => _showTransactionDetails(context, transaction), // Memanggil fungsi pop-up detail
+      onTap: () => _showTransactionDetails(context, transaction),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
@@ -341,7 +454,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  // Pop-up Detail Transaksi (termasuk fitur Hapus)
   void _showTransactionDetails(BuildContext context, TransactionModel transaction) {
     final theme = Theme.of(context);
     final isIncome = transaction.type == 'income';
@@ -427,7 +539,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ],
 
                   const SizedBox(height: 32),
-                  // TOMBOL HAPUS TRANSAKSI
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
