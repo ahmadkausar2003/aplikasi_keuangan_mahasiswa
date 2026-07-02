@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import '../providers/goal_provider.dart';
 import '../providers/transaction_provider.dart';
 import '../../core/database/db_helper.dart';
-import '../../data/models/goal_model.dart'; // Import model dari file aslinya
+import '../../data/models/goal_model.dart'; // Pastikan import ini sudah benar
 
 // --- CUSTOM FORMATTER UNTUK RIBUAN RUPIAH ---
 class CurrencyInputFormatter extends TextInputFormatter {
@@ -94,33 +94,33 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Isi Tabungan'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: amountController,
-                keyboardType: TextInputType.number,
-                // Menggunakan Custom Formatter
-                inputFormatters: [CurrencyInputFormatter()],
-                decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp ', border: OutlineInputBorder()),
-                validator: (val) {
-                  if (val == null || val.isEmpty) return 'Wajib diisi';
-                  // Bersihkan titik sebelum validasi nilai
-                  final cleanVal = val.replaceAll(RegExp(r'[^0-9]'), '');
-                  if ((double.tryParse(cleanVal) ?? 0) <= 0) return 'Nominal tidak valid';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: noteController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(labelText: 'Sumber Dana (Misal: Sisa Uang Jajan)', border: OutlineInputBorder()),
-                validator: (val) => val == null || val.trim().isEmpty ? 'Wajib diisi' : null,
-              ),
-            ],
+        content: SingleChildScrollView( // FIX: Bungkus dengan SingleChildScrollView
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [CurrencyInputFormatter()],
+                  decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp ', border: OutlineInputBorder()),
+                  validator: (val) {
+                    if (val == null || val.isEmpty) return 'Wajib diisi';
+                    final cleanVal = val.replaceAll(RegExp(r'[^0-9]'), '');
+                    if ((double.tryParse(cleanVal) ?? 0) <= 0) return 'Nominal tidak valid';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: noteController,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(labelText: 'Sumber Dana (Misal: Sisa Uang Jajan)', border: OutlineInputBorder()),
+                  validator: (val) => val == null || val.trim().isEmpty ? 'Wajib diisi' : null,
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -128,7 +128,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
           FilledButton(
             onPressed: () {
               if (formKey.currentState!.validate()) {
-                // Bersihkan titik sebelum konversi ke double
                 final cleanAmountText = amountController.text.replaceAll(RegExp(r'[^0-9]'), '');
                 final amount = double.parse(cleanAmountText);
                 
@@ -148,7 +147,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     final noteController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
-    // 🚨 BACA SALDO UTAMA UNTUK PERINGATAN DARURAT 🚨
     final mainBalance = ref.read(transactionProvider).mainBalance;
     final isExtremelyUrgent = mainBalance <= 0;
     
@@ -160,46 +158,46 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Tarik Dana (Darurat)'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFEF4444)),
+        content: SingleChildScrollView( // FIX: Bungkus dengan SingleChildScrollView
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFEF4444)),
+                  ),
+                  child: Text(warningText, style: const TextStyle(color: Color(0xFFEF4444), fontSize: 13, fontWeight: FontWeight.bold)),
                 ),
-                child: Text(warningText, style: const TextStyle(color: Color(0xFFEF4444), fontSize: 13, fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: amountController,
-                keyboardType: TextInputType.number,
-                // Menggunakan Custom Formatter
-                inputFormatters: [CurrencyInputFormatter()],
-                decoration: const InputDecoration(labelText: 'Nominal Ditarik', prefixText: 'Rp ', border: OutlineInputBorder()),
-                validator: (val) {
-                  if (val == null || val.isEmpty) return 'Wajib diisi';
-                  // Bersihkan titik sebelum validasi nilai
-                  final cleanVal = val.replaceAll(RegExp(r'[^0-9]'), '');
-                  final amt = double.tryParse(cleanVal) ?? 0;
-                  
-                  if (amt <= 0) return 'Tidak valid';
-                  if (amt > currentSaved) return 'Saldo tabungan tidak cukup';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: noteController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(labelText: 'Alasan Darurat (Misal: Bayar RS)', border: OutlineInputBorder()),
-                validator: (val) => val == null || val.trim().isEmpty ? 'Wajib diisi' : null,
-              ),
-            ],
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [CurrencyInputFormatter()],
+                  decoration: const InputDecoration(labelText: 'Nominal Ditarik', prefixText: 'Rp ', border: OutlineInputBorder()),
+                  validator: (val) {
+                    if (val == null || val.isEmpty) return 'Wajib diisi';
+                    final cleanVal = val.replaceAll(RegExp(r'[^0-9]'), '');
+                    final amt = double.tryParse(cleanVal) ?? 0;
+                    
+                    if (amt <= 0) return 'Tidak valid';
+                    if (amt > currentSaved) return 'Saldo tabungan tidak cukup';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: noteController,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(labelText: 'Alasan Darurat (Misal: Bayar RS)', border: OutlineInputBorder()),
+                  validator: (val) => val == null || val.trim().isEmpty ? 'Wajib diisi' : null,
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -208,7 +206,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
             onPressed: () {
               if (formKey.currentState!.validate()) {
-                // Bersihkan titik sebelum konversi ke double
                 final cleanAmountText = amountController.text.replaceAll(RegExp(r'[^0-9]'), '');
                 final amount = double.parse(cleanAmountText);
 
@@ -227,7 +224,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     final state = ref.watch(goalProvider);
     final theme = Theme.of(context);
     
-    // Cari goal berdasarkan ID. Jika tidak ketemu (misal dihapus), kembali.
     final goalIndex = state.goals.indexWhere((g) => g.id == widget.goalId);
     if (goalIndex == -1) return const Scaffold(body: Center(child: Text('Target tidak ditemukan')));
     final goal = state.goals[goalIndex];
@@ -249,7 +245,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       ),
       body: Column(
         children: [
-          // KARTU HEADER
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -277,7 +272,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             ),
           ),
           
-          // DAFTAR LOG TRANSAKSI
           Expanded(
             child: FutureBuilder<List<GoalLogModel>>(
               future: _logsFuture,
@@ -316,7 +310,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             ),
           ),
           
-          // TOMBOL AKSI
           Padding(
             padding: const EdgeInsets.all(20.0),
             child: Row(
