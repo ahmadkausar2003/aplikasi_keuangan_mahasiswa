@@ -8,7 +8,7 @@ class TransactionState {
   final List<TransactionModel> allTransactions;
   final List<TransactionModel> recentTransactions;
   final double mainBalance;
-  final double bankBalance; // Menyimpan Saldo Rekening Manual
+  final double bankBalance; // Menyimpan Saldo Rekening Manual (Running Balance)
   final double currentMonthIncome;
   final double currentMonthExpense;
   final bool isLoading;
@@ -87,7 +87,7 @@ class TransactionNotifier extends Notifier<TransactionState> {
     }
   }
 
-  // Fungsi khusus untuk memperbarui Saldo Rekening Manual
+  // Fungsi khusus untuk memperbarui Saldo Rekening secara langsung (Manual / Sinkronisasi)
   Future<void> updateBankBalance(double newBalance) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('manual_bank_balance', newBalance);
@@ -97,17 +97,70 @@ class TransactionNotifier extends Notifier<TransactionState> {
   Future<void> addTransaction(TransactionModel transaction) async {
     state = state.copyWith(isLoading: true);
     await _dbHelper.insertTransaction(transaction);
+
+    // --- SINKRONISASI SALDO REKENING OTOMATIS ---
+    final prefs = await SharedPreferences.getInstance();
+    double currentBank = prefs.getDouble('manual_bank_balance') ?? 0.0;
+    if (transaction.type == 'income') {
+      currentBank += transaction.amount;
+    } else {
+      currentBank -= transaction.amount;
+    }
+    await prefs.setDouble('manual_bank_balance', currentBank);
+    
     await loadTransactions();
   }
 
   Future<void> updateTransaction(TransactionModel transaction) async {
     state = state.copyWith(isLoading: true);
+    
+    // --- MENGHITUNG ULANG SELISIH SALDO REKENING ---
+    final oldTxIndex = state.allTransactions.indexWhere((t) => t.id == transaction.id);
+    if (oldTxIndex != -1) {
+      final oldTx = state.allTransactions[oldTxIndex];
+      final prefs = await SharedPreferences.getInstance();
+      double currentBank = prefs.getDouble('manual_bank_balance') ?? 0.0;
+      
+      // Membalikkan efek transaksi lama
+      if (oldTx.type == 'income') {
+        currentBank -= oldTx.amount;
+      } else {
+        currentBank += oldTx.amount;
+      }
+
+      // Menerapkan efek transaksi baru
+      if (transaction.type == 'income') {
+        currentBank += transaction.amount;
+      } else {
+        currentBank -= transaction.amount;
+      }
+      
+      await prefs.setDouble('manual_bank_balance', currentBank);
+    }
+
     await _dbHelper.updateTransaction(transaction);
     await loadTransactions();
   }
 
   Future<void> deleteTransaction(int id) async {
     state = state.copyWith(isLoading: true);
+    
+    // --- KEMBALIKAN SALDO JIKA TRANSAKSI DIHAPUS ---
+    final txIndex = state.allTransactions.indexWhere((t) => t.id == id);
+    if (txIndex != -1) {
+      final tx = state.allTransactions[txIndex];
+      final prefs = await SharedPreferences.getInstance();
+      double currentBank = prefs.getDouble('manual_bank_balance') ?? 0.0;
+      
+      if (tx.type == 'income') {
+        currentBank -= tx.amount; // Uang masuk dihapus -> saldo berkurang
+      } else {
+        currentBank += tx.amount; // Uang keluar dihapus -> saldo kembali utuh
+      }
+      
+      await prefs.setDouble('manual_bank_balance', currentBank);
+    }
+
     await _dbHelper.deleteTransaction(id);
     await loadTransactions();
   }
@@ -115,6 +168,11 @@ class TransactionNotifier extends Notifier<TransactionState> {
   Future<void> clearAllData() async {
     state = state.copyWith(isLoading: true);
     await _dbHelper.clearAllData();
+    
+    // Reset juga saldo rekening saat reset data
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('manual_bank_balance', 0.0);
+    
     await loadTransactions();
   }
 }
