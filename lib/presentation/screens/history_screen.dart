@@ -10,8 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../providers/transaction_provider.dart';
 import '../../data/models/transaction_model.dart';
 
-class HistoryScreen extends ConsumerStatefulWidget 
-{
+class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
 
   @override
@@ -25,7 +24,73 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     decimalDigits: 0,
   );
 
-  Future<void> _exportAndSharePDF(List<TransactionModel> transactions) async {
+  // --- POP-UP PILIH PERIODE EKSPOR ---
+  void _showExportOptions(BuildContext context, List<TransactionModel> allTransactions) {
+    final theme = Theme.of(context);
+    
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Cetak Laporan PDF', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text('Pilih periode transaksi yang ingin diekspor:', style: theme.textTheme.bodyMedium),
+                const SizedBox(height: 24),
+                
+                // OPSI 1: BULAN INI
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFF10B981).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.calendar_month_rounded, color: Color(0xFF10B981)),
+                  ),
+                  title: const Text('Bulan Ini', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(DateFormat('MMMM yyyy', 'id_ID').format(DateTime.now())),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: theme.dividerColor)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    final now = DateTime.now();
+                    final filtered = allTransactions.where((t) => t.date.month == now.month && t.date.year == now.year).toList();
+                    _exportAndSharePDF(filtered, 'Bulan Ini (${DateFormat('MMMM yyyy', 'id_ID').format(now)})');
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // OPSI 2: SEMUA WAKTU
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFF3B82F6).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.all_inclusive_rounded, color: Color(0xFF3B82F6)),
+                  ),
+                  title: const Text('Semua Waktu', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Seluruh riwayat transaksi sejak awal'),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: theme.dividerColor)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _exportAndSharePDF(allTransactions, 'Semua Waktu');
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    );
+  }
+
+  // --- FUNGSI GENERATE PDF DENGAN FILTER & PERIODE ---
+  Future<void> _exportAndSharePDF(List<TransactionModel> transactions, String periodLabel) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -35,14 +100,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     try {
       final pdf = pw.Document();
 
-      // MEMISAHKAN TRANSAKSI
+      // MEMISAHKAN TRANSAKSI (Sistem cerdas mendeteksi histori lama maupun baru)
       final regularTransactions = transactions.where((t) => 
-          t.category != 'Tabungan' && t.category != 'Darurat').toList();
+          t.category != 'Tabungan' && 
+          t.category != 'Darurat' && 
+          !t.title.contains('Darurat') && 
+          !t.title.contains('Nabung') &&
+          !t.title.contains('Pencairan') &&
+          !t.title.contains('Batal Target')).toList();
           
       final targetTransactions = transactions.where((t) => 
-          t.category == 'Tabungan' || t.category == 'Darurat').toList();
+          t.category == 'Tabungan' || 
+          t.category == 'Darurat' || 
+          t.title.contains('Darurat') ||
+          t.title.contains('Nabung') ||
+          t.title.contains('Pencairan') ||
+          t.title.contains('Batal Target')).toList();
 
-      // PERBAIKAN LOGIKA: Hitung Pemasukan & Pengeluaran HANYA dari Transaksi Dasbor
+      // Kalkulasi MURNI dari transaksi harian
       double totalIncome = 0.0;
       double totalExpense = 0.0;
       for (var t in regularTransactions) {
@@ -50,10 +125,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         if (t.type == 'expense') totalExpense += t.amount;
       }
 
-      // Hitung khusus untuk Dana Darurat HANYA dari Transaksi Sistem
+      // Kalkulasi khusus Tarik Darurat (Kebal untuk histori lama dan baru)
       double totalDarurat = 0.0;
       for (var t in targetTransactions) {
-        if (t.category == 'Darurat' && t.type == 'expense') {
+        if (t.type == 'expense' && (t.category == 'Darurat' || (t.title.contains('Darurat') && !t.title.contains('Sistem')))) {
           totalDarurat += t.amount;
         }
       }
@@ -64,16 +139,16 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           margin: const pw.EdgeInsets.all(32),
           build: (pw.Context context) {
             return [
-              // HEADER LAPORAN
               pw.Header(
                 level: 0,
                 child: pw.Text('Laporan Transaksi Keuangan - SmartStudent Finance', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
               ),
               pw.SizedBox(height: 10),
+              pw.Text('Periode Laporan: $periodLabel', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
               pw.Text('Tanggal Cetak: ${DateFormat('dd MMMM yyyy HH:mm').format(DateTime.now())}'),
               pw.SizedBox(height: 30),
               
-              // BAGIAN 1: TABEL TRANSAKSI HARIAN (DASBOR)
+              // TABEL 1: HARIAN
               pw.Text('1. Riwayat Transaksi Harian (Dasbor)', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 10),
               if (regularTransactions.isEmpty)
@@ -97,7 +172,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ),
               pw.SizedBox(height: 30),
 
-              // BAGIAN 2: TABEL TRANSAKSI TARGET & DARURAT
+              // TABEL 2: TARGET & DARURAT
               pw.Text('2. Riwayat Tabungan & Dana Darurat', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 10),
               if (targetTransactions.isEmpty)
@@ -106,7 +181,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 pw.TableHelper.fromTextArray(
                   context: context,
                   headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-                  headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo800), // Warna header berbeda
+                  headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo800),
                   cellAlignment: pw.Alignment.centerLeft,
                   data: <List<String>>[
                     <String>['Tanggal', 'Judul', 'Kategori', 'Tipe', 'Nominal'],
@@ -121,15 +196,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ),
               pw.SizedBox(height: 40),
 
-              // BAGIAN 3: RINGKASAN TOTAL (DI BAWAH)
+              // RINGKASAN TOTAL
               pw.Divider(),
               pw.SizedBox(height: 10),
-              pw.Text('Ringkasan Keuangan', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Ringkasan Keuangan ($periodLabel)', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 15),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Total Pemasukan Keseluruhan:', style: const pw.TextStyle(fontSize: 12)),
+                  pw.Text('Total Pemasukan Harian:', style: const pw.TextStyle(fontSize: 12)),
                   pw.Text(_currencyFormat.format(totalIncome), style: pw.TextStyle(fontSize: 12, color: PdfColors.green, fontWeight: pw.FontWeight.bold)),
                 ]
               ),
@@ -137,7 +212,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Total Pengeluaran Keseluruhan:', style: const pw.TextStyle(fontSize: 12)),
+                  pw.Text('Total Pengeluaran Harian:', style: const pw.TextStyle(fontSize: 12)),
                   pw.Text(_currencyFormat.format(totalExpense), style: pw.TextStyle(fontSize: 12, color: PdfColors.red, fontWeight: pw.FontWeight.bold)),
                 ]
               ),
@@ -164,7 +239,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
-          text: 'Halo! Berikut adalah rekapan transaksi keuangan saya dari aplikasi SmartStudent Finance. 📄',
+          text: 'Halo! Berikut adalah rekapan transaksi keuangan saya dari aplikasi SmartStudent Finance ($periodLabel). 📄',
         ),
       );
 
@@ -190,7 +265,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             IconButton(
               icon: const Icon(Icons.picture_as_pdf_outlined),
               tooltip: 'Bagikan ke WhatsApp (PDF)',
-              onPressed: () => _exportAndSharePDF(state.allTransactions),
+              onPressed: () => _showExportOptions(context, state.allTransactions), // Panggil pop-up opsi cetak
             ),
             const SizedBox(width: 8),
           ],
@@ -331,8 +406,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
     final isSystemTransaction = transaction.category == 'Darurat' || 
                                 transaction.category == 'Tabungan' || 
-                                transaction.title.startsWith('Pencairan') ||
-                                transaction.title.startsWith('Batal Target');
+                                transaction.title.contains('Darurat') ||
+                                transaction.title.contains('Pencairan') ||
+                                transaction.title.contains('Batal Target');
 
     showModalBottomSheet(
       context: context,
@@ -417,6 +493,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   
                   const SizedBox(height: 32),
                   
+                  // LOGIKA PELINDUNG HAPUS TRANSAKSI SISTEM
                   if (isSystemTransaction)
                     Container(
                       width: double.infinity,
