@@ -34,21 +34,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     try {
       final pdf = pw.Document();
 
-      // Memisahkan transaksi harian (Dasbor) dan transaksi sistem (Target/Darurat)
+      // MEMISAHKAN TRANSAKSI
       final regularTransactions = transactions.where((t) => 
           t.category != 'Tabungan' && t.category != 'Darurat').toList();
           
       final targetTransactions = transactions.where((t) => 
           t.category == 'Tabungan' || t.category == 'Darurat').toList();
 
-      // Menghitung total khusus untuk ringkasan di bawah
+      // PERBAIKAN LOGIKA: Hitung Pemasukan & Pengeluaran HANYA dari Transaksi Dasbor
       double totalIncome = 0.0;
       double totalExpense = 0.0;
-      double totalDarurat = 0.0;
-
-      for (var t in transactions) {
+      for (var t in regularTransactions) {
         if (t.type == 'income') totalIncome += t.amount;
         if (t.type == 'expense') totalExpense += t.amount;
+      }
+
+      // Hitung khusus untuk Dana Darurat HANYA dari Transaksi Sistem
+      double totalDarurat = 0.0;
+      for (var t in targetTransactions) {
         if (t.category == 'Darurat' && t.type == 'expense') {
           totalDarurat += t.amount;
         }
@@ -186,7 +189,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             IconButton(
               icon: const Icon(Icons.picture_as_pdf_outlined),
               tooltip: 'Bagikan ke WhatsApp (PDF)',
-              onPressed: () => _exportAndSharePDF(state.allTransactions), // Tidak perlu passing total lagi karena dihitung di dalam PDF
+              onPressed: () => _exportAndSharePDF(state.allTransactions),
             ),
             const SizedBox(width: 8),
           ],
@@ -242,8 +245,6 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   Widget _buildTransactionItem(BuildContext context, TransactionModel transaction) {
     final theme = Theme.of(context);
     final isIncome = transaction.type == 'income';
-    
-    // Warna Dinamis: Hijau untuk Pemasukan, Merah untuk Pengeluaran
     final itemColor = isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444);
 
     return InkWell(
@@ -415,7 +416,6 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   
                   const SizedBox(height: 32),
                   
-                  // LOGIKA PELINDUNG HAPUS TRANSAKSI SISTEM
                   if (isSystemTransaction)
                     Container(
                       width: double.infinity,
