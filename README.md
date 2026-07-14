@@ -1,6 +1,7 @@
 QUICK INSTALASI DAN PENGGUNAAN APLIKASI BISA LANGSUNG DOWNLAOD APKNYA DI LINK BERIKUT :
 
 https://drive.google.com/file/d/1vfGh824jPVhs-ee_AXgBPnTxZqHjPqwM/view?usp=drive_link
+
 NAMA APLIKASINYA UANG PANAI HEHEHEHEH
 # 💰 Aplikasi Keuangan Mahasiswaaaaaaaaaaaaaaaaaa
 
