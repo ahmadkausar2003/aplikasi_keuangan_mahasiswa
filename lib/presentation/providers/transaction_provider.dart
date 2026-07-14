@@ -7,12 +7,17 @@ import '../../core/database/db_helper.dart';
 class TransactionState {
   final List<TransactionModel> allTransactions;
   final List<TransactionModel> recentTransactions;
-  final double mainBalance;
-  final double bankBalance; // Menyimpan Saldo Rekening Manual (Running Balance)
-  final double cashBalance; // Saldo Cash (Dompet) = mainBalance - bankBalance
+  final double mainBalance;   // Saldo Utama (Bank + Cash)
+  final double bankBalance;   // Saldo Rekening
+  final double cashBalance;   // Saldo Uang Cash
   final double currentMonthIncome;
   final double currentMonthExpense;
   final bool isLoading;
+  
+  // Fitur Hide Saldo Terpisah
+  final bool isMainBalanceHidden; 
+  final bool isBankBalanceHidden; 
+  final bool isCashBalanceHidden; 
   
   // Kategori Custom
   final List<String> customExpenseCategories;
@@ -27,6 +32,9 @@ class TransactionState {
     this.currentMonthIncome = 0.0,
     this.currentMonthExpense = 0.0,
     this.isLoading = false,
+    this.isMainBalanceHidden = false,
+    this.isBankBalanceHidden = false,
+    this.isCashBalanceHidden = false,
     this.customExpenseCategories = const [],
     this.customIncomeCategories = const [],
   });
@@ -40,6 +48,9 @@ class TransactionState {
     double? currentMonthIncome,
     double? currentMonthExpense,
     bool? isLoading,
+    bool? isMainBalanceHidden,
+    bool? isBankBalanceHidden,
+    bool? isCashBalanceHidden,
     List<String>? customExpenseCategories,
     List<String>? customIncomeCategories,
   }) {
@@ -52,6 +63,9 @@ class TransactionState {
       currentMonthIncome: currentMonthIncome ?? this.currentMonthIncome,
       currentMonthExpense: currentMonthExpense ?? this.currentMonthExpense,
       isLoading: isLoading ?? this.isLoading,
+      isMainBalanceHidden: isMainBalanceHidden ?? this.isMainBalanceHidden,
+      isBankBalanceHidden: isBankBalanceHidden ?? this.isBankBalanceHidden,
+      isCashBalanceHidden: isCashBalanceHidden ?? this.isCashBalanceHidden,
       customExpenseCategories: customExpenseCategories ?? this.customExpenseCategories,
       customIncomeCategories: customIncomeCategories ?? this.customIncomeCategories,
     );
@@ -80,17 +94,21 @@ class TransactionNotifier extends Notifier<TransactionState> {
       final results = await Future.wait([
         _dbHelper.getAllTransactions(),
         _dbHelper.getTransactionsByDateRange(sevenDaysAgo, now),
-        _dbHelper.getLifetimeIncome(),
-        _dbHelper.getLifetimeExpense(),
         _dbHelper.getTotalIncome(startOfMonth, endOfMonth),
         _dbHelper.getTotalExpense(startOfMonth, endOfMonth),
       ]);
 
-      final double mainBal = (results[2] as double) - (results[3] as double);
+      // Mengambil nilai mutlak dari SharedPreferences
       final double bankBal = prefs.getDouble('manual_bank_balance') ?? 0.0;
-      final double cashBal = mainBal - bankBal;
+      final double cashBal = prefs.getDouble('manual_cash_balance') ?? 0.0;
+      
+      // Saldo Utama MURNI adalah gabungan Rekening + Uang Cash
+      final double mainBal = bankBal + cashBal;
+      
+      final bool mainHidden = prefs.getBool('is_main_hidden') ?? false;
+      final bool bankHidden = prefs.getBool('is_bank_hidden') ?? false;
+      final bool cashHidden = prefs.getBool('is_cash_hidden') ?? false;
 
-      // Memuat kategori kustom yang disimpan user
       final customExp = prefs.getStringList('custom_expense_cats') ?? [];
       final customInc = prefs.getStringList('custom_income_cats') ?? [];
 
@@ -100,10 +118,13 @@ class TransactionNotifier extends Notifier<TransactionState> {
         mainBalance: mainBal,
         bankBalance: bankBal,
         cashBalance: cashBal,
-        currentMonthIncome: results[4] as double,
-        currentMonthExpense: results[5] as double,
+        currentMonthIncome: results[2] as double,
+        currentMonthExpense: results[3] as double,
         customExpenseCategories: customExp,
         customIncomeCategories: customInc,
+        isMainBalanceHidden: mainHidden,
+        isBankBalanceHidden: bankHidden,
+        isCashBalanceHidden: cashHidden,
         isLoading: false,
       );
     } catch (e) {
@@ -112,16 +133,49 @@ class TransactionNotifier extends Notifier<TransactionState> {
     }
   }
 
-  // Fungsi khusus untuk memperbarui Saldo Rekening secara langsung (Manual / Sinkronisasi)
+  // --- FITUR HIDE SALDO TERPISAH ---
+  Future<void> toggleMainBalanceHidden() async {
+    final prefs = await SharedPreferences.getInstance();
+    final newValue = !state.isMainBalanceHidden;
+    await prefs.setBool('is_main_hidden', newValue);
+    state = state.copyWith(isMainBalanceHidden: newValue);
+  }
+
+  Future<void> toggleBankBalanceHidden() async {
+    final prefs = await SharedPreferences.getInstance();
+    final newValue = !state.isBankBalanceHidden;
+    await prefs.setBool('is_bank_hidden', newValue);
+    state = state.copyWith(isBankBalanceHidden: newValue);
+  }
+
+  Future<void> toggleCashBalanceHidden() async {
+    final prefs = await SharedPreferences.getInstance();
+    final newValue = !state.isCashBalanceHidden;
+    await prefs.setBool('is_cash_hidden', newValue);
+    state = state.copyWith(isCashBalanceHidden: newValue);
+  }
+
+  // --- EDIT SALDO REKENING MANUAL ---
   Future<void> updateBankBalance(double newBalance) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('manual_bank_balance', newBalance);
     
-    // Kalkulasi ulang uang cash secara real-time
-    final cashBal = state.mainBalance - newBalance;
+    // Saldo Utama otomatis menyesuaikan Rekening Baru + Cash Lama
     state = state.copyWith(
       bankBalance: newBalance,
-      cashBalance: cashBal,
+      mainBalance: newBalance + state.cashBalance,
+    );
+  }
+
+  // --- EDIT SALDO UANG CASH MANUAL ---
+  Future<void> updateCashBalance(double newBalance) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('manual_cash_balance', newBalance);
+    
+    // Saldo Utama otomatis menyesuaikan Rekening Lama + Cash Baru
+    state = state.copyWith(
+      cashBalance: newBalance,
+      mainBalance: state.bankBalance + newBalance,
     );
   }
 
@@ -139,19 +193,29 @@ class TransactionNotifier extends Notifier<TransactionState> {
     }
   }
 
+  // --- LOGIKA TRANSAKSI DENGAN FITUR TARIK TUNAI ---
   Future<void> addTransaction(TransactionModel transaction) async {
     state = state.copyWith(isLoading: true);
     await _dbHelper.insertTransaction(transaction);
 
-    // --- SINKRONISASI SALDO REKENING OTOMATIS ---
     final prefs = await SharedPreferences.getInstance();
     double currentBank = prefs.getDouble('manual_bank_balance') ?? 0.0;
-    if (transaction.type == 'income') {
+    double currentCash = prefs.getDouble('manual_cash_balance') ?? 0.0;
+
+    // Logika Pintar: Jika Pengeluaran Kategori "Uang Cash" = Tarik Tunai
+    if (transaction.type == 'expense' && transaction.category.toLowerCase() == 'uang cash') {
+      currentBank -= transaction.amount; // Uang di rekening berkurang
+      currentCash += transaction.amount; // Uang cash bertambah (Pindah dompet)
+    } 
+    // Transaksi normal
+    else if (transaction.type == 'income') {
       currentBank += transaction.amount;
     } else {
       currentBank -= transaction.amount;
     }
+
     await prefs.setDouble('manual_bank_balance', currentBank);
+    await prefs.setDouble('manual_cash_balance', currentCash);
 
     await loadTransactions();
   }
@@ -159,28 +223,35 @@ class TransactionNotifier extends Notifier<TransactionState> {
   Future<void> updateTransaction(TransactionModel transaction) async {
     state = state.copyWith(isLoading: true);
 
-    // --- MENGHITUNG ULANG SELISIH SALDO REKENING ---
     final oldTxIndex = state.allTransactions.indexWhere((t) => t.id == transaction.id);
     if (oldTxIndex != -1) {
       final oldTx = state.allTransactions[oldTxIndex];
       final prefs = await SharedPreferences.getInstance();
       double currentBank = prefs.getDouble('manual_bank_balance') ?? 0.0;
+      double currentCash = prefs.getDouble('manual_cash_balance') ?? 0.0;
 
-      // Membalikkan efek transaksi lama
-      if (oldTx.type == 'income') {
+      // 1. REVERSE LOGIKA LAMA
+      if (oldTx.type == 'expense' && oldTx.category.toLowerCase() == 'uang cash') {
+        currentBank += oldTx.amount; 
+        currentCash -= oldTx.amount;
+      } else if (oldTx.type == 'income') {
         currentBank -= oldTx.amount;
       } else {
         currentBank += oldTx.amount;
       }
 
-      // Menerapkan efek transaksi baru
-      if (transaction.type == 'income') {
+      // 2. APPLY LOGIKA BARU
+      if (transaction.type == 'expense' && transaction.category.toLowerCase() == 'uang cash') {
+        currentBank -= transaction.amount;
+        currentCash += transaction.amount;
+      } else if (transaction.type == 'income') {
         currentBank += transaction.amount;
       } else {
         currentBank -= transaction.amount;
       }
 
       await prefs.setDouble('manual_bank_balance', currentBank);
+      await prefs.setDouble('manual_cash_balance', currentCash);
     }
 
     await _dbHelper.updateTransaction(transaction);
@@ -190,20 +261,25 @@ class TransactionNotifier extends Notifier<TransactionState> {
   Future<void> deleteTransaction(int id) async {
     state = state.copyWith(isLoading: true);
 
-    // --- KEMBALIKAN SALDO JIKA TRANSAKSI DIHAPUS ---
     final txIndex = state.allTransactions.indexWhere((t) => t.id == id);
     if (txIndex != -1) {
       final tx = state.allTransactions[txIndex];
       final prefs = await SharedPreferences.getInstance();
       double currentBank = prefs.getDouble('manual_bank_balance') ?? 0.0;
+      double currentCash = prefs.getDouble('manual_cash_balance') ?? 0.0;
 
-      if (tx.type == 'income') {
-        currentBank -= tx.amount; // Uang masuk dihapus -> saldo berkurang
+      // REVERSE LOGIKA SAAT DIHAPUS
+      if (tx.type == 'expense' && tx.category.toLowerCase() == 'uang cash') {
+        currentBank += tx.amount; // Uang kembali ke rekening
+        currentCash -= tx.amount; // Uang cash batal bertambah
+      } else if (tx.type == 'income') {
+        currentBank -= tx.amount;
       } else {
-        currentBank += tx.amount; // Uang keluar dihapus -> saldo kembali utuh
+        currentBank += tx.amount;
       }
 
       await prefs.setDouble('manual_bank_balance', currentBank);
+      await prefs.setDouble('manual_cash_balance', currentCash);
     }
 
     await _dbHelper.deleteTransaction(id);
@@ -214,9 +290,9 @@ class TransactionNotifier extends Notifier<TransactionState> {
     state = state.copyWith(isLoading: true);
     await _dbHelper.clearAllData();
 
-    // Reset saldo rekening dan kategori saat reset data
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('manual_bank_balance', 0.0);
+    await prefs.setDouble('manual_cash_balance', 0.0); 
     await prefs.remove('custom_expense_cats');
     await prefs.remove('custom_income_cats');
 

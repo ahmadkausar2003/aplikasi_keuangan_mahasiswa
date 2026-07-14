@@ -67,7 +67,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               labelText: 'Nominal Saldo Saat Ini',
               prefixText: 'Rp ',
               border: OutlineInputBorder(),
-              helperText: 'Otomatis tersinkron dengan Uang Cash',
+              helperText: 'Akan memperbarui Total Saldo Utama',
               helperMaxLines: 2,
             ),
             validator: (value) {
@@ -98,7 +98,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  void _showCashInfoDialog(BuildContext context) {
+  void _showEditCashBalance(BuildContext context, WidgetRef ref, double currentBalance) {
+    final initialText = currentBalance == 0 
+        ? '' 
+        : NumberFormat.decimalPattern('id_ID').format(currentBalance.toInt());
+
+    final controller = TextEditingController(text: initialText);
+    final formKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -106,17 +113,134 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           children: const [
             Icon(Icons.wallet, color: Color(0xFFF59E0B)),
             SizedBox(width: 8),
-            Text('Info Uang Cash'),
+            Text('Ubah Uang Cash'),
           ],
         ),
-        content: const Text(
-          'Uang Cash dihitung otomatis dari Total Saldo Utama dikurangi Saldo Rekening.\n\n'
-          'Jika bernilai minus (-), artinya Anda memasukkan Saldo Rekening manual lebih besar dari total riwayat transaksi Anda.',
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            inputFormatters: [CurrencyInputFormatter()],
+            decoration: const InputDecoration(
+              labelText: 'Uang Cash di Dompet',
+              prefixText: 'Rp ',
+              border: OutlineInputBorder(),
+              helperText: 'Jika ingin "Tarik Tunai" dari Rekening, lebih baik gunakan form Tambah Transaksi dengan kategori "Uang Cash".',
+              helperMaxLines: 4,
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) return 'Tidak boleh kosong';
+              return null;
+            },
+          ),
         ),
         actions: [
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Mengerti'),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                final cleanText = controller.text.replaceAll(RegExp(r'[^0-9]'), '');
+                final newBalance = double.tryParse(cleanText) ?? 0.0;
+
+                ref.read(transactionProvider.notifier).updateCashBalance(newBalance);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- MODAL NOTIFIKASI PINTAR ---
+  void _showNotifications(BuildContext context, double mainBalance) {
+    final theme = Theme.of(context);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.notifications_active_rounded, color: Color(0xFFF59E0B)),
+                    const SizedBox(width: 8),
+                    Text('Pusat Notifikasi', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                
+                // Notifikasi 1: Pengingat Harian
+                _buildNotifItem(
+                  context: context,
+                  icon: Icons.wb_sunny_rounded,
+                  color: const Color(0xFF3B82F6),
+                  title: 'Pengingat Harian',
+                  desc: 'Halo! Jangan lupa mencatat pengeluaran atau pemasukanmu hari ini ya.',
+                ),
+                const SizedBox(height: 16),
+                
+                // Notifikasi 2: Kondisi Saldo Dinamis
+                if (mainBalance < 50000)
+                  _buildNotifItem(
+                    context: context,
+                    icon: Icons.warning_rounded,
+                    color: const Color(0xFFEF4444),
+                    title: 'Peringatan Saldo Menipis',
+                    desc: 'Total saldomu saat ini tersisa ${_currencyFormat.format(mainBalance)}. Yuk, mulai berhemat sampai akhir bulan!',
+                  )
+                else
+                  _buildNotifItem(
+                    context: context,
+                    icon: Icons.thumb_up_rounded,
+                    color: const Color(0xFF10B981),
+                    title: 'Kondisi Keuangan Aman',
+                    desc: 'Kondisi keuanganmu terlihat stabil. Jangan lupa sisihkan sebagian untuk Target Tabungan!',
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNotifItem({required BuildContext context, required IconData icon, required Color color, required String title, required String desc}) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: color)),
+                const SizedBox(height: 4),
+                Text(desc, style: theme.textTheme.bodyMedium),
+              ],
+            ),
           ),
         ],
       ),
@@ -132,9 +256,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       appBar: AppBar(
         title: const Text('SmartStudent Finance'),
         actions: [
+          // TOMBOL NOTIFIKASI AKTIF
           IconButton(
-            icon: const Icon(Icons.notifications_none_outlined),
-            onPressed: () {},
+            icon: const Icon(Icons.notifications_active_outlined),
+            tooltip: 'Notifikasi',
+            onPressed: () => _showNotifications(context, state.mainBalance),
           ),
           const SizedBox(width: 8),
         ],
@@ -151,7 +277,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildBalanceCard(context, state.mainBalance),
+                      _buildBalanceCard(context, state.mainBalance, state.isMainBalanceHidden),
                       const SizedBox(height: 16),
                       
                       // Split Wallet Section
@@ -164,6 +290,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               balance: state.bankBalance,
                               icon: Icons.account_balance_rounded,
                               color: Colors.blueAccent,
+                              isHidden: state.isBankBalanceHidden,
+                              onToggleHide: () => ref.read(transactionProvider.notifier).toggleBankBalanceHidden(),
                               onTap: () => _showEditBankBalance(context, ref, state.bankBalance),
                             ),
                           ),
@@ -175,7 +303,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               balance: state.cashBalance,
                               icon: Icons.wallet_rounded,
                               color: const Color(0xFFF59E0B),
-                              onTap: () => _showCashInfoDialog(context),
+                              isHidden: state.isCashBalanceHidden,
+                              onToggleHide: () => ref.read(transactionProvider.notifier).toggleCashBalanceHidden(),
+                              onTap: () => _showEditCashBalance(context, ref, state.cashBalance),
                             ),
                           ),
                         ],
@@ -224,7 +354,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildBalanceCard(BuildContext context, double balance) {
+  Widget _buildBalanceCard(BuildContext context, double balance, bool isHidden) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -254,17 +384,35 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Saldo Utama (Total Transaksi)',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Saldo Utama (Total)',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              // Ikon Mata (Hide) khusus Saldo Utama
+              InkWell(
+                onTap: () => ref.read(transactionProvider.notifier).toggleMainBalanceHidden(),
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(4.0),
+                  child: Icon(
+                    isHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded, 
+                    color: Colors.white70, 
+                    size: 20
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Text(
-            _currencyFormat.format(balance),
+            isHidden ? 'Rp ••••••••' : _currencyFormat.format(balance),
             style: theme.textTheme.headlineLarge?.copyWith(
               color: Colors.white,
               fontSize: 32,
@@ -281,6 +429,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required double balance,
     required IconData icon,
     required Color color,
+    required bool isHidden,
+    required VoidCallback onToggleHide,
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
@@ -316,11 +466,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                     child: Icon(icon, color: color, size: 18),
                   ),
-                  Icon(
-                    title == 'Di Rekening' ? Icons.edit_rounded : Icons.info_outline_rounded,
-                    color: Colors.grey.withValues(alpha: 0.5),
-                    size: 16,
-                  )
+                  // Dua ikon berjajar: Hide & Edit
+                  Row(
+                    children: [
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          isHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded, 
+                          color: Colors.grey, 
+                          size: 18
+                        ),
+                        onPressed: onToggleHide,
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.edit_rounded, color: Colors.grey.withValues(alpha: 0.5), size: 16),
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -334,12 +496,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                _currencyFormat.format(balance),
+                isHidden ? 'Rp ••••' : _currencyFormat.format(balance),
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   letterSpacing: -0.5,
-                  color: isNegative ? const Color(0xFFEF4444) : theme.textTheme.titleMedium?.color,
+                  color: isNegative && !isHidden ? const Color(0xFFEF4444) : theme.textTheme.titleMedium?.color,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -711,9 +873,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case 'nongkrong': return Icons.coffee_rounded;
       case 'uang saku': return Icons.account_balance_wallet_rounded;
       case 'gaji part-time': return Icons.work_rounded;
+      case 'uang cash': return Icons.local_atm_rounded;
       case 'bonus': return Icons.card_giftcard_rounded;
-      case 'darurat': return Icons.warning_rounded; // Ikon Darurat
-      case 'tabungan': return Icons.savings_rounded; // Ikon Tabungan
+      case 'darurat': return Icons.warning_rounded;
+      case 'tabungan': return Icons.savings_rounded; 
       case 'belanja': return Icons.shopping_bag_rounded;
       case 'hiburan': return Icons.movie_creation_rounded;
       case 'kesehatan': return Icons.medical_services_rounded;
