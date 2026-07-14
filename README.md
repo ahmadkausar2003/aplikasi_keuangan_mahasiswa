@@ -1,3 +1,7 @@
+QUICK INSTALASI DAN PENGGUNAAN APLIKASI BISA LANGSUNG DOWNLAOD APKNYA DI LINK BERIKUT :
+
+https://drive.google.com/file/d/1vfGh824jPVhs-ee_AXgBPnTxZqHjPqwM/view?usp=drive_link
+
 # 💰 Aplikasi Keuangan Mahasiswaaaaaaaaaaaaaaaaaa
 
 Aplikasi manajemen keuangan berbasis mobile yang dirancang khusus untuk membantu mahasiswa dalam mencatat pendapatan, pengeluaran, serta mengelola anggaran bulanan secara mandiri dan teratur.
